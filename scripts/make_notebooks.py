@@ -54,7 +54,7 @@ os.makedirs(DATA, exist_ok=True)
 
 TESTS = r'''
 # All CPU unit tests + the CUDA consistency test (tiled reference, float32 GPU vs float64 CPU)
-sh(f"cd {REPO} && python -m pytest -q -p no:cacheprovider tests")
+sh(f"cd {REPO} && python -m pytest -p no:cacheprovider -rs tests")   # pytest.ini already adds -q
 '''
 
 LEGO_DATA = r'''

@@ -16,11 +16,14 @@ Rebuild a 3D scene from photos or a phone video and render it in the browser: my
 ## Setup (Windows laptop, CPU)
 
 ```powershell
-uv venv --python 3.12 .venv
-uv pip install --python .venv\Scripts\python.exe torch --index-url https://download.pytorch.org/whl/cpu
-uv pip install --python .venv\Scripts\python.exe numpy pillow pytest
+winget install --id Python.Python.3.12 --exact --scope user
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .venv
+.venv\Scripts\python.exe -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv\Scripts\python.exe -m pip install numpy pillow pytest
 .venv\Scripts\python.exe -m pytest
 ```
+
+Use the signed python.org build, not a `uv`-managed Python: with Windows Smart App Control on, the unsigned python-build-standalone interpreter that `uv` installs is blocked ("os error 4551").
 
 Demos:
 
