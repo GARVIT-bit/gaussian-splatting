@@ -26,8 +26,14 @@ from PIL import Image
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 from splat.data import load_blender, load_colmap, random_init_points  # noqa: E402
-from splat.reference import render  # noqa: E402
-from splat.trainer import TrainConfig, Trainer, init_from_points  # noqa: E402
+from splat.trainer import render  # noqa: E402  (dispatches on --render-mode)
+from splat.trainer import TrainConfig, Trainer, init_from_points  # noqa: E402,F811
+
+
+RENDERERS = {"tiled": "PyTorch reference renderer, autograd backward",
+             "dense": "dense PyTorch reference renderer, autograd backward",
+             "fast_torch": "hand-written backward, PyTorch",
+             "triton": "my Triton tile rasterizer, hand-written backward"}
 
 
 def git_commit() -> str:
@@ -155,22 +161,26 @@ def main():
     res = trainer.evaluate(lpips_fn=lpips_fn)
     eval_time = time.time() - t_eval
     with torch.no_grad():
-        n_r = min(args.n_renders, len(scene.test))
+        draw = lambda fr: render(trainer.gaussians, fr.camera, sh_degree=trainer.sh_degree,
+                                 background=trainer.background, mode=cfg.render_mode,
+                                 batch_elems=cfg.batch_elems).image
+        draw(scene.test[0])  # warm-up (kernel compilation)
+        sync = torch.cuda.synchronize if args.device.startswith("cuda") else (lambda: None)
+        sync()
         t_r = time.perf_counter()
-        for i in range(n_r):
+        for fr in scene.test:  # timing: renders only, nothing written
+            draw(fr)
+        sync()
+        render_s = (time.perf_counter() - t_r) / max(len(scene.test), 1)
+        for i in range(min(args.n_renders, len(scene.test))):
             fr = scene.test[i]
-            img = render(trainer.gaussians, fr.camera, sh_degree=trainer.sh_degree,
-                         background=trainer.background, mode=cfg.render_mode, batch_elems=cfg.batch_elems).image
-            save_png(torch.cat([img, fr.image_float(args.device)], 1), os.path.join(args.out, f"test_{i:03d}.png"))
-        if args.device.startswith("cuda"):
-            torch.cuda.synchronize()
-        render_s = (time.perf_counter() - t_r) / max(n_r, 1)
+            save_png(torch.cat([draw(fr), fr.image_float(args.device)], 1), os.path.join(args.out, f"test_{i:03d}.png"))
     torch.save({k: v.detach().cpu() for k, v in trainer.gaussians.parameters().items()},
                os.path.join(args.out, "final.pt"))
 
     hours = trainer.train_time / 3600
     lines = [
-        f"# {args.name}: training with the {cfg.render_mode} PyTorch reference renderer",
+        f"# {args.name}: training with render mode `{cfg.render_mode}` ({RENDERERS.get(cfg.render_mode, '?')})",
         "",
         f"- Date: {datetime.date.today().isoformat()}  |  git commit: {git_commit()}",
         f"- Hardware: {hardware()}  |  Python {platform.python_version()}  |  PyTorch {torch.__version__}",
@@ -185,7 +195,8 @@ def main():
         f"- Training time (sum of iteration times, excl. loading/eval): {hours:.2f} h "
         f"({trainer.train_time / max(trainer.iteration, 1):.3f} s/iteration)",
         f"- Peak GPU memory allocated: {peak_mem:.2f} GB" if peak_mem == peak_mem else "- Peak GPU memory: n/a (CPU)",
-        f"- Render time per test view (reference renderer, not optimised): {render_s:.3f} s",
+        f"- Render time per test view (mean over all {len(scene.test)} test views, renders only, no grad): "
+        f"{render_s * 1000:.1f} ms ({1 / render_s:.1f} views/s)",
         "",
         f"| metric | value |",
         f"|---|---:|",

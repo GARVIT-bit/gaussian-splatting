@@ -16,9 +16,7 @@ Quota: one Kaggle account, about **30 GPU-hours per week** (2 x T4 per session, 
 |---|---|---|---|---:|---|---:|
 | 1 | 2 | Debug: notebook smoke test, timing of the reference renderer | lego, 200x200, 300 iters | 0.3 | Kaggle | ~0.6 (interactive session, incl. a batch-size test) |
 | 2 | 2 | Lego, reference renderer, low resolution (Phase 2 "done") | lego 200x200 (4x down), 30k iters, 100k random init, max 200k Gaussians | 3-8 | Kaggle GPU 0 | 4.0 (whole committed version incl. setup, tests and timing run; training itself 3.86 h) |
-| 3 | 3 | Fast rasterizer GPU tests (forward + all gradients vs reference) | random scenes | 0.5 | Kaggle | _pending_ |
-| 4 | 3 | Rasterizer benchmark vs reference and gsplat | 3 resolutions x 4 Gaussian counts | 0.5 | Kaggle | _pending_ |
-| 5 | 3 | Lego full resolution with my rasterizer (Phase 3 "done") | 800x800, 30k | 0.5-1 | Kaggle | _pending_ |
+| 3-5 | 3 | `phase3_triton.ipynb`: GPU tests; lego 800x800 (GPU 0) and lego 200x200 with Phase-2 settings (GPU 1) in parallel; rasterizer benchmarks (random + trained scene, vs reference and gsplat) | 800x800 30k no cap / 200x200 30k cap 200k | 1.5-4 (session wall clock; both GPUs) | Kaggle 2 GPUs | _pending_ |
 | 6 | 4 | NeRF-synthetic, 8 scenes, mine | 800x800, 30k, white bg | 4-8 | Kaggle 2 GPUs in parallel | _pending_ |
 | 7 | 4 | NeRF-synthetic, 8 scenes, gsplat (same settings, same T4) | 800x800, 30k | 2-4 | Kaggle 2 GPUs | _pending_ |
 | 8 | 4 | Mip-NeRF 360 garden + bicycle, mine | images_4, 30k | 4-7 | Kaggle 2 GPUs | _pending_ |

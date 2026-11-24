@@ -222,8 +222,10 @@ def render(g: Gaussians, cam: Camera, *, sh_degree: int | None = None,
     dirs = dirs / dirs.norm(dim=-1, keepdim=True)
     colors = eval_sh(sh_degree, g.sh, dirs)
 
+    # Depth order is defined on float32 depths with ties broken by index, exactly like the
+    # rasterizers' 64-bit sort key (tile << 32 | float32 depth bits), also when training in float64.
     vis = torch.nonzero(proj.valid).squeeze(-1)
-    order = vis[torch.argsort(proj.depths[vis].detach(), stable=True)]
+    order = vis[torch.argsort(proj.depths[vis].detach().to(torch.float32), stable=True)]
 
     m2, cn = proj.means2d[order], proj.conics[order]
     op, col = g.opacities[order], colors[order]

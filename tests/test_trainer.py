@@ -206,3 +206,21 @@ def test_training_end_to_end_improves_held_out_psnr():
     assert any("densify" in i for i in infos)
     assert end > start + 6, (start, end)
     assert end > 22, end
+
+
+@pytest.mark.parametrize("mode", ["fast_torch"])
+def test_hand_written_backward_trains_identically_to_autograd(mode, float64):
+    """Same scene, seed and schedule (densification + an opacity reset included): the hand-written
+    backward must give the same parameters as autograd through the reference, in float64."""
+    scene = tiny_scene()
+    init = Gaussians.random(40, extent=0.8, sh_degree=3, scale_range=(0.03, 0.08), opacity_range=(0.1, 0.1),
+                            seed=3, dtype=torch.float64)
+    runs = {}
+    for m in ("tiled", mode):
+        t = Trainer(scene, init, small_cfg(iterations=30, render_mode=m))
+        infos = [t.step() for _ in range(30)]
+        runs[m] = (t.gaussians, [i.get("densify") for i in infos])
+    (ga, da), (gb, db) = runs["tiled"], runs[mode]
+    assert da == db and any(d for d in da)   # identical densification decisions, and some happened
+    for k, v in ga.parameters().items():
+        assert torch.allclose(v, gb.parameters()[k], atol=1e-8), k

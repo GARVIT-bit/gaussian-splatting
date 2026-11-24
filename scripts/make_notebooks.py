@@ -147,9 +147,108 @@ if COLAB:
     return notebook(cells)
 
 
+def phase3():
+    cells = [
+        md(r'''
+# Phase 3: Triton rasterizer: GPU tests, benchmark, lego at full resolution
+
+Runs on **Kaggle** with **GPU T4 x2** and Internet on. Run it with **Save Version → Save & Run All (Commit)**; every cell runs by itself.
+
+1. Setup, then **all tests**, including the Triton kernels on the GPU: forward and every gradient vs the reference, in float64 (exact) and float32, plus a 30-iteration float64 training run that must match autograd. If any test fails, the notebook stops there.
+2. Get lego. Try to install **gsplat**, used only by the benchmark script as a reference. If it can't be built here, the benchmark records "not available".
+3. Two jobs in parallel, one per GPU:
+   - **GPU 0:** lego at **800x800**, 30k iterations, paper settings, no Gaussian cap, my Triton rasterizer (Phase 3 "done"). Then the benchmark on that trained scene at 800x800.
+   - **GPU 1:** lego at **200x200** with *exactly* the Phase-2 settings, but on the Triton rasterizer, to compare speed and quality with the Phase-2 reference run. Then the random-scene benchmark (200/400/800 px x 10k-300k Gaussians).
+4. Package everything into `phase3_results.zip`.
+
+**GPU-hour estimate (a guess until measured):** about 1.5-4 h of session time. Kaggle counts the session's wall clock once, even with both GPUs in use. Both training runs checkpoint every 1000 iterations and stop at 10.5 h. If the session ends early, see the resume cell.
+'''),
+        code(SETUP),
+        code(r'''
+# Unit tests (CPU) + GPU tests: Triton kernels vs the reference, CUDA consistency
+sh(f"cd {REPO} && python -m pytest -p no:cacheprovider -rs tests")
+'''),
+        code(LEGO_DATA),
+        code(r'''
+# gsplat: reference for the benchmark only (never imported by my renderer or trainer).
+# Building its CUDA code can take several minutes; failure is recorded, not fatal.
+r = subprocess.run("pip install -q gsplat && python -c \"import torch, gsplat; from gsplat import rasterization; "
+                   "m=torch.zeros(1,3,device='cuda'); q=torch.tensor([[1.,0,0,0]],device='cuda'); "
+                   "s=torch.full((1,3),.1,device='cuda'); o=torch.ones(1,device='cuda'); c=torch.ones(1,3,device='cuda'); "
+                   "V=torch.eye(4,device='cuda'); V[2,3]=3; K=torch.tensor([[50.,0,32],[0,50,32],[0,0,1]],device='cuda'); "
+                   "print('gsplat', gsplat.__version__, rasterization(m,q,s,o,c,V[None],K[None],64,64)[0].shape)\"",
+                   shell=True, timeout=3600)
+print("gsplat ready" if r.returncode == 0 else "gsplat NOT available; the benchmark will record that")
+'''),
+        md(r'''
+## Resume (only when continuing an interrupted run)
+
+On Kaggle: add the earlier version's **output** as an input (Add Input → Your Work → this notebook → that version), then run all again. This cell copies the `runs/` folders (with `ckpt.pt`) back, and training continues from the checkpoints.
+'''),
+        code(r'''
+RUNS = os.path.join(WORK, "runs")
+os.makedirs(RUNS, exist_ok=True)
+for name in ("lego_triton_800", "lego_triton_200"):
+    prev = glob.glob(f"/kaggle/input/**/runs/{name}/ckpt.pt", recursive=True)
+    dst = os.path.join(RUNS, name)
+    if prev and not os.path.exists(os.path.join(dst, "ckpt.pt")):
+        shutil.copytree(os.path.dirname(prev[0]), dst, dirs_exist_ok=True)
+        print("resuming", name, "from", prev[0])
+'''),
+        md("## Two jobs in parallel (one per GPU)"),
+        code(r'''
+RES = os.path.join(WORK, "phase3_results")
+os.makedirs(RES, exist_ok=True)
+train = (f"python scripts/train.py --data {LEGO} --format blender --render-mode triton --iterations 30000 "
+         f"--ckpt-every 1000 --log-every 500 --time-limit-hours 10.5")
+jobs = {
+    # GPU 0: full resolution (Phase 3 "done"), then the benchmark on the trained scene
+    0: (f"{train} --downscale 1 --out {RUNS}/lego_triton_800 --name lego_triton_800 "
+        f"--results {RES}/lego_triton_800.md && "
+        f"python bench/bench_rasterizer.py --scene {RUNS}/lego_triton_800/final.pt --data {LEGO} "
+        f"--resolutions 200 400 800 --out {RES}/phase3_rasterizer_lego.md"),
+    # GPU 1: exactly the Phase-2 settings on the Triton rasterizer, then the random-scene benchmark
+    1: (f"{train} --downscale 4 --max-gaussians 200000 --out {RUNS}/lego_triton_200 --name lego_triton_200 "
+        f"--results {RES}/lego_triton_200.md && "
+        f"python bench/bench_rasterizer.py --out {RES}/phase3_rasterizer_random.md"),
+}
+procs = {}
+for gpu, cmd in jobs.items():
+    log = open(os.path.join(RES, f"gpu{gpu}.log"), "w")
+    print(f"GPU {gpu}: {cmd}\n")
+    procs[gpu] = subprocess.Popen(f"cd {REPO} && {cmd}", shell=True, stdout=log, stderr=subprocess.STDOUT,
+                                  env={**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)})
+t0 = time.time()
+while any(p.poll() is None for p in procs.values()):
+    time.sleep(300)
+    tails = {g: open(os.path.join(RES, f"gpu{g}.log")).read().strip().splitlines()[-1:] for g in procs}
+    print(f"[{(time.time() - t0) / 3600:.2f} h]", {g: t[0][:120] if t else "" for g, t in tails.items()}, flush=True)
+for g, p in procs.items():
+    print(f"GPU {g} exit code {p.returncode}")
+    print("".join(open(os.path.join(RES, f"gpu{g}.log")).readlines()[-25:]))
+'''),
+        md("## Package results for download"),
+        code(r'''
+for name in ("lego_triton_800", "lego_triton_200"):
+    d = os.path.join(RUNS, name)
+    for f in glob.glob(os.path.join(d, "*")):
+        if f.endswith(("log.csv", ".png")):
+            shutil.copy(f, os.path.join(RES, f"{name}_{os.path.basename(f)}"))
+    if os.path.exists(os.path.join(d, "final.pt")):
+        shutil.copy(os.path.join(d, "final.pt"), os.path.join(RES, f"{name}_final.pt"))
+shutil.make_archive(RES, "zip", RES)
+print("download:", RES + ".zip")
+for f in sorted(glob.glob(os.path.join(RES, "*.md"))):
+    print("=" * 80, "\n", open(f).read())
+'''),
+    ]
+    return notebook(cells)
+
+
 if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT, "notebooks"), exist_ok=True)
-    path = os.path.join(ROOT, "notebooks", "phase2_lego.ipynb")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(phase2(), f, indent=1)
-    print("wrote", path)
+    for name, fn in (("phase2_lego", phase2), ("phase3_triton", phase3)):
+        path = os.path.join(ROOT, "notebooks", f"{name}.ipynb")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(fn(), f, indent=1)
+        print("wrote", path)

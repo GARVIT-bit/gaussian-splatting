@@ -24,7 +24,18 @@ import torch
 from .data import Scene
 from .gaussians import Gaussians
 from .losses import gs_loss, psnr, ssim
-from .reference import render
+from .reference import render as render_reference
+
+
+def render(g, cam, *, sh_degree, background, mode, batch_elems):
+    """Dispatch on TrainConfig.render_mode: "tiled" / "dense" (autograd reference),
+    "fast_torch" (hand-written backward, PyTorch) or "triton" (hand-written backward, Triton)."""
+    if mode in ("fast_torch", "triton"):
+        from .fast import render_fast
+        return render_fast(g, cam, sh_degree=sh_degree, background=background,
+                           backend="torch" if mode == "fast_torch" else "triton", batch_elems=batch_elems)
+    return render_reference(g, cam, sh_degree=sh_degree, background=background, mode=mode,
+                            batch_elems=batch_elems)
 from .sh import num_sh_coeffs, rgb_to_sh0
 
 PARAM_NAMES = ("means", "log_scales", "quats", "opacity_logits", "sh_dc", "sh_rest")
@@ -56,7 +67,7 @@ class TrainConfig:
     max_gaussians: int = 0          # 0 = no cap
     init_opacity: float = 0.1
     seed: int = 0
-    render_mode: str = "tiled"
+    render_mode: str = "tiled"      # tiled | dense | fast_torch | triton
     batch_elems: int = 1 << 22      # tiled reference: padded elements per tile batch
     device: str = "cpu"
 
@@ -285,7 +296,7 @@ class Trainer:
         if not self.stack:
             self.stack = list(range(len(self.scene.train)))
         frame = self.scene.train[self.stack.pop(self.rng.randint(0, len(self.stack) - 1))]
-        gt = frame.image_float(self.device)
+        gt = frame.image_float(self.device, self.gaussians.means.dtype)
 
         out = render(self.gaussians, frame.camera, sh_degree=self.sh_degree, background=self.background,
                      mode=cfg.render_mode, batch_elems=cfg.batch_elems)
@@ -361,7 +372,7 @@ class Trainer:
         for fr in frames:
             img = render(self.gaussians, fr.camera, sh_degree=self.sh_degree, background=self.background,
                          mode=self.cfg.render_mode, batch_elems=self.cfg.batch_elems).image.clamp(0, 1)
-            gt = fr.image_float(self.device)
+            gt = fr.image_float(self.device, self.gaussians.means.dtype)
             ps.append(psnr(img, gt))
             ss.append(ssim(img, gt).item())
             if lpips_fn is not None:
