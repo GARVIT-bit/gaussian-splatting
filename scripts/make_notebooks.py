@@ -152,7 +152,7 @@ def phase3():
         md(r'''
 # Phase 3: Triton rasterizer: GPU tests, benchmark, lego at full resolution
 
-Runs on **Kaggle** with **GPU T4 x2** and Internet on. Run it with **Save Version → Save & Run All (Commit)**; every cell runs by itself.
+Runs on **Kaggle** with **GPU T4 x2** and Internet on: use **Save Version → Save & Run All (Commit)**, and every cell runs by itself. It also runs on **Colab** (Runtime → Change runtime type → T4 GPU → Run all). With one GPU the two jobs below run one after the other instead of in parallel; keep the Colab tab open.
 
 1. Setup, then **all tests**, including the Triton kernels on the GPU: forward and every gradient vs the reference, in float64 (exact) and float32, plus a 30-iteration float64 training run that must match autograd. If any test fails, the notebook stops there.
 2. Get lego. Try to install **gsplat**, used only by the benchmark script as a reference. If it can't be built here, the benchmark records "not available".
@@ -195,7 +195,7 @@ for name in ("lego_triton_800", "lego_triton_200"):
         shutil.copytree(os.path.dirname(prev[0]), dst, dirs_exist_ok=True)
         print("resuming", name, "from", prev[0])
 '''),
-        md("## Two jobs in parallel (one per GPU)"),
+        md("## Two jobs: in parallel with 2 GPUs (Kaggle), one after the other with 1 GPU (Colab)"),
         code(r'''
 RES = os.path.join(WORK, "phase3_results")
 os.makedirs(RES, exist_ok=True)
@@ -212,6 +212,11 @@ jobs = {
         f"--results {RES}/lego_triton_200.md && "
         f"python bench/bench_rasterizer.py --out {RES}/phase3_rasterizer_random.md"),
 }
+import torch
+n_gpu = torch.cuda.device_count()
+print("GPUs:", n_gpu, [torch.cuda.get_device_name(i) for i in range(n_gpu)])
+if n_gpu < 2:   # e.g. Colab's single T4: same two jobs, one after the other (full resolution first)
+    jobs = {0: f"({jobs[0]}) ; ({jobs[1]})"}
 procs = {}
 for gpu, cmd in jobs.items():
     log = open(os.path.join(RES, f"gpu{gpu}.log"), "w")
