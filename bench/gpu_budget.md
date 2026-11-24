@@ -7,15 +7,15 @@ Quota: one Kaggle account, about **30 GPU-hours per week** (2 x T4 per session, 
 - **Paper reference point (reported, A6000 GPU):** 3DGS trains a Mip-NeRF 360 scene in about 35-45 min at 30k iterations and a NeRF-synthetic scene in a few minutes.
 - **T4 vs A6000 (assumption):** about 3-4x slower (roughly 8 vs 39 FP32 TFLOPS, and 320 vs 768 GB/s memory bandwidth).
 - **My Triton rasterizer vs gsplat (assumption):** 1.5-2.5x slower until tuned.
-- **Phase 2 reference renderer (tiled PyTorch, autograd):** to be measured in the first debug cell. Guess: 0.3-1 s/iteration at 200x200.
+- **Phase 2 reference renderer (tiled PyTorch, autograd):** measured on a Kaggle T4 (2026-11-23, commit 93b96fd): 0.674 s/iteration at 200x200 with 100k Gaussians (300 iterations, peak 0.40 GB). Batches 4x bigger (`--batch-elems 2^24`) were no faster (0.690 s/it at iteration 100), so the default stays. At 100k Gaussians, 30k iterations project to ~5.4 h; densification up to the 200k cap will change that.
 - **Overheads:** session setup + dataset download/unzip + evaluation + writing results: about 0.3 h per session.
 
 ## Planned runs
 
 | # | Phase | Run | Settings | Est. GPU-h | Platform | Measured GPU-h |
 |---|---|---|---|---:|---|---:|
-| 1 | 2 | Debug: notebook smoke test, timing of the reference renderer | lego, 200x200, 300 iters | 0.3 | Kaggle | _pending_ |
-| 2 | 2 | Lego, reference renderer, low resolution (Phase 2 "done") | lego 200x200 (4x down), 30k iters, 100k random init, max 200k Gaussians | 3-8 | Kaggle GPU 0 | _pending_ |
+| 1 | 2 | Debug: notebook smoke test, timing of the reference renderer | lego, 200x200, 300 iters | 0.3 | Kaggle | ~0.6 (interactive session, incl. a batch-size test) |
+| 2 | 2 | Lego, reference renderer, low resolution (Phase 2 "done") | lego 200x200 (4x down), 30k iters, 100k random init, max 200k Gaussians | 3-8 | Kaggle GPU 0 | 4.0 (whole committed version incl. setup, tests and timing run; training itself 3.86 h) |
 | 3 | 3 | Fast rasterizer GPU tests (forward + all gradients vs reference) | random scenes | 0.5 | Kaggle | _pending_ |
 | 4 | 3 | Rasterizer benchmark vs reference and gsplat | 3 resolutions x 4 Gaussian counts | 0.5 | Kaggle | _pending_ |
 | 5 | 3 | Lego full resolution with my rasterizer (Phase 3 "done") | 800x800, 30k | 0.5-1 | Kaggle | _pending_ |

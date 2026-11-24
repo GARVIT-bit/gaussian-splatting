@@ -2,12 +2,12 @@
 
 Rebuild a 3D scene from photos or a phone video and render it in the browser: my own differentiable Gaussian rasterizer (a pure-PyTorch reference, then a tile-based GPU version with a hand-written backward pass), the training loop with adaptive density control, evaluation on standard datasets, a WebGL viewer, and measured compression. Based on Kerbl, Kopanas, Leimkühler, Drettakis, *3D Gaussian Splatting for Real-Time Radiance Field Rendering*, SIGGRAPH 2023.
 
-**Status:** Phase 1 done. Phase 2's code and CPU tests are done; its GPU run (lego) has not been run yet, so there are no GPU numbers. Phases 3-6 not started.
+**Status:** Phases 1-2 done (maths, reference renderer, full training pipeline; lego trained on a Kaggle T4 with the reference renderer at 200×200). Phases 3-6 not started.
 
 | Phase | What | Status |
 |---|---|---|
 | 1 | Maths + pure-PyTorch reference renderer (laptop CPU) | done |
-| 2 | Training pipeline (density control, loaders, checkpoints) | code + CPU tests done; lego GPU run pending |
+| 2 | Training pipeline (density control, loaders, checkpoints) | done |
 | 3 | Fast tile-based rasterizer with hand-written backward | not started |
 | 4 | Real scenes + evaluation vs paper and gsplat | not started |
 | 5 | WebGL viewer | not started |
@@ -134,7 +134,29 @@ Tiles are batched (padded to the longest list in the batch) and each batch runs 
 
 ### Phase 2: lego with the reference renderer (GPU)
 
-_Not run yet._ `notebooks/phase2_lego.ipynb` writes `bench/results/lego_ref_200.md` (lego at 200×200, 30k iterations, 100k random init points, at most 200k Gaussians). Its numbers go here once it has run.
+From [bench/results/lego_ref_200.md](bench/results/lego_ref_200.md), written by `notebooks/phase2_lego.ipynb` → `scripts/train.py`. Setup: one Kaggle Tesla T4 (PyTorch 2.11, CUDA 13.0), commit 93b96fd, NeRF-synthetic lego downscaled 4× to 200×200, white background, 100 train / 200 test views (the dataset's own test split), 100k random init points, 30k iterations, paper hyperparameters, seed 0, 1 run. The training log is in [bench/results/lego_ref_200_log.csv](bench/results/lego_ref_200_log.csv).
+
+| metric (200 test views, 200×200) | value |
+|---|---:|
+| PSNR (dB) | **35.42** (per-view min 25.25, max 41.06, std 3.20) |
+| SSIM | 0.9898 |
+| LPIPS (VGG, `lpips` package) | 0.0107 |
+| final Gaussians | 109,695 |
+| training time (sum of iteration times) | 3.86 h (0.463 s/iteration) |
+| peak GPU memory allocated | 0.46 GB |
+| render time per view (reference renderer) | 0.134 s |
+
+These numbers show the pipeline works end to end. They are **not comparable** to the paper's lego numbers: the images are 4× smaller (fewer high-frequency details, so higher PSNR is easier), the renderer is the unoptimised reference, and this is one run. The paper comparison, at 800×800 with the fast rasterizer and against gsplat on the same T4, is Phase 4.
+
+What the log shows:
+- **Most of the random init is pruned at once.** For white-background scenes the paper's code also resets opacity at iteration 500 (the densification start). At the first densification after that (iteration 600), 83,994 of the 100k random points still have opacity below 0.005 and are pruned, leaving 16,476. From there clone and split grow the count past 100k again by iteration 4,500.
+- **The Gaussian cap never mattered.** The peak was 114,793 Gaussians (iteration 9,000), well under the 200k cap. When densification stopped at 15k, 109,695 were left.
+- **Iterations got cheaper as the scene sharpened,** from 0.65 s at 100k large random Gaussians to about 0.47 s at 110k smaller ones, because smaller Gaussians touch fewer tiles.
+
+Renders on held-out test views (left: mine, right: ground truth):
+
+![lego test view 0](docs/images/phase2_lego_test_000.png)
+![lego test view 3](docs/images/phase2_lego_test_003.png)
 
 ### Phase 1: synthetic scene fit (CPU, reference renderer)
 
@@ -170,7 +192,8 @@ Init | fitted | ground truth on a held-out view (48×48, upscaled 4×):
 - The reference renderer is dense (every pixel × every Gaussian), so it only runs at tiny resolutions and Gaussian counts. It is the correctness baseline, not the fast path; the tile-based rasterizer is Phase 3.
 - Phase 2 trains with the PyTorch reference renderer, which is far too slow for full resolution. The Phase-2 lego run is at 200×200 with a cap of 200k Gaussians, and is a pipeline check, not a paper comparison. Paper-comparable runs need the Phase-3 rasterizer.
 - Not implemented from the official code: random background colours during training, exposure compensation, anti-aliasing, and the later densification variants. Images are resized with PIL bicubic.
-- The trainer is only tested on CPU with synthetic data so far. The CUDA consistency test and the first real-data run happen in the notebook.
+- The CPU tests use synthetic data. The CUDA consistency test passed on the T4. The only real-data run so far is lego (synthetic renders, no COLMAP); the COLMAP loader has only been run on test fixtures, and its first real run is Mip-NeRF 360 in Phase 4.
+- The Phase-2 lego result is one seed. Run-to-run spread is measured in Phase 4.
 - The Phase-1 scene is synthetic (random ground-truth Gaussians rendered by the same renderer), so it shows the optimisation works, not that it reconstructs real photos.
 - The EWA projection is a first-order approximation (exact only for small Gaussians); this is the paper's method, not a bug. Anti-aliasing beyond the 0.3 low-pass (Mip-Splatting) is a stretch goal.
 - Camera poses and initial points for real scenes will come from COLMAP, which is not my code. Structure-from-motion is a separate project.
