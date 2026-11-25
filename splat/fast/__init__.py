@@ -36,7 +36,9 @@ class FastOutput:
 
 
 def render_fast(g: Gaussians, cam: Camera, *, sh_degree: int | None = None, background=None,
-                backend: str = "torch", tile: int = 16, batch_elems: int = 1 << 22) -> FastOutput:
+                backend: str = "torch", tile: int = 16, batch_elems: int = 1 << 22,
+                alpha_max: float | None = None) -> FastOutput:
+    """alpha_max: override the 0.99 alpha clamp (Triton backend only; used by the gsplat diagnostic)."""
     dtype, device = g.means.dtype, g.means.device
     if sh_degree is None:
         sh_degree = g.max_sh_degree
@@ -48,12 +50,15 @@ def render_fast(g: Gaussians, cam: Camera, *, sh_degree: int | None = None, back
         g.means, g.log_scales, g.quats, g.opacity_logits, g.sh_dc, g.sh_rest, cam, sh_degree)
     bins = bin_gaussians(means2d, radii, depths, valid, cam.width, cam.height, tile)
     if backend == "torch":
+        if alpha_max is not None:
+            raise ValueError("alpha_max is only supported by the triton backend")
         image, alpha = RasterizeTorchFn.apply(means2d, conics, opac, colors, bins, cam.width, cam.height,
                                               background, batch_elems)
     elif backend == "triton":
         from .raster_triton import RasterizeTritonFn
+        from ..reference import ALPHA_MAX
         image, alpha = RasterizeTritonFn.apply(means2d, conics, opac, colors, bins, cam.width, cam.height,
-                                               background)
+                                               background, ALPHA_MAX if alpha_max is None else alpha_max)
     else:
         raise ValueError(f"unknown backend {backend!r}")
     radii = torch.where(valid, radii, torch.zeros_like(radii))

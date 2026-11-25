@@ -2,14 +2,14 @@
 
 Rebuild a 3D scene from photos or a phone video and render it in the browser: my own differentiable Gaussian rasterizer (a pure-PyTorch reference, then a tile-based GPU version with a hand-written backward pass), the training loop with adaptive density control, evaluation on standard datasets, a WebGL viewer, and measured compression. Based on Kerbl, Kopanas, Leimkühler, Drettakis, *3D Gaussian Splatting for Real-Time Radiance Field Rendering*, SIGGRAPH 2023.
 
-**Status:** Phases 1-2 done (maths, reference renderer, full training pipeline; lego trained on a Kaggle T4 with the reference renderer at 200×200). Phase 3 done: my Triton rasterizer with a hand-written backward passes every GPU test on a T4, reproduces the reference training run (35.43 vs 35.42 dB) 5.1× faster, and trains lego at full 800×800 in 0.93 h. It is 4-11× slower than gsplat. Phases 4-6 not started.
+**Status:** Phases 1-2 done (maths, reference renderer, full training pipeline; lego trained on a Kaggle T4 with the reference renderer at 200×200). Phase 3 done: my Triton rasterizer with a hand-written backward passes every GPU test on a T4, reproduces the reference training run (35.43 vs 35.42 dB) 5.1× faster, and trains lego at full 800×800 in 0.93 h. It is 4-11× slower than gsplat. Phase 4 (evaluation on standard datasets) is set up as five Kaggle sessions, none run yet. Phases 5-6 not started.
 
 | Phase | What | Status |
 |---|---|---|
 | 1 | Maths + pure-PyTorch reference renderer (laptop CPU) | done |
 | 2 | Training pipeline (density control, loaders, checkpoints) | done |
 | 3 | Fast tile-based rasterizer with hand-written backward | done |
-| 4 | Real scenes + evaluation vs paper and gsplat | not started |
+| 4 | Real scenes + evaluation vs paper and gsplat | code + notebooks ready; GPU sessions A-E pending |
 | 5 | WebGL viewer | not started |
 | 6 | Compression (measured) + ship | not started |
 
@@ -184,6 +184,28 @@ The fast path computes the same image as the tiled reference, in three stages, e
 - float32 kernels vs the float64 reference, with stated tolerances.
 - 30 training iterations, including densification and an opacity reset, must give the same parameters with the hand-written backward (PyTorch spec and Triton) as with autograd.
 - On the laptop the Triton kernels run in Triton's CPU interpreter (WSL). On Kaggle the same tests run compiled on the T4.
+
+### Phase 4: evaluation (how the comparison is set up)
+
+- **Protocol** (from the paper and the official `full_eval.py` / `metrics.py`):
+  - NeRF-synthetic at 800×800 on a white background, with its own test split.
+  - Mip-NeRF 360 outdoor scenes on `images_4` and indoor scenes on `images_2`, every 8th image held out.
+  - Tanks & Temples on the 3DGS release images.
+  - 30k iterations, SfM-point init for real scenes, 100k random points for synthetic ones.
+  - PSNR, SSIM (11×11 Gaussian window), and LPIPS with VGG. The official code also uses VGG, but through its own port rather than the `lpips` package.
+- **Data** (`scripts/get_data.py`, run in the Kaggle session):
+  - lego comes from the NeRF authors' own zip.
+  - The other NeRF-synthetic scenes come from the nerfbaselines mirror on Hugging Face. The script compares the mirror's lego with the official lego file by file and refuses to continue if they differ.
+  - Mip-NeRF 360 comes from Google's official 12.5 GB zip. Only the needed scenes' `sparse/` and `images_4` / `images_2` are read, with HTTP range requests (a small seekable-HTTP wrapper around Python's `zipfile`, tested against a local server).
+  - Tanks & Temples comes from the 3DGS authors' release.
+- **Three columns, never mixed:**
+  1. **mine:** `scripts/train.py --render-mode triton`.
+  2. **gsplat:** `bench/train_gsplat.py`, which runs *my* training loop, data, densification, optimiser and seed with gsplat's rasterizer swapped in. The only difference from "mine" is the rasterizer, and gsplat is imported only by that benchmark script. A test drives this adapter with a fake gsplat built on my reference renderer and checks that the training trajectory is identical.
+  3. **paper:** values reported by Kerbl et al. (A6000, their code), labelled as reported. They are stored in `bench/paper_numbers.json` together with how each value was read. Two caveats:
+     - The paper gives only PSNR per NeRF-synthetic scene.
+     - The per-scene Mip-NeRF 360 / T&T values were read through a summarising fetch, not verbatim. They do average to the paper's verbatim Table 1 numbers, but still need checking against the PDF appendix before they go in a final table.
+- **Memory:** the T4 has 15 GB, so real-scene runs cap the Gaussian count at 3M, and the cap is recorded in each results file. The training log records allocated and peak GPU memory, so session A shows how memory grows with the count before the real-scene sessions run.
+- **Aggregation:** `bench/phase4_tables.py` turns every run's JSON into `bench/results/phase4_summary.md`.
 
 ## Results
 

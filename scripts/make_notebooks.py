@@ -250,10 +250,171 @@ for f in sorted(glob.glob(os.path.join(RES, "*.md"))):
     return notebook(cells)
 
 
+GSPLAT_INSTALL = r'''
+# gsplat: reference only (imported by bench/train_gsplat.py and bench/compare_gsplat.py, never by my code).
+r = subprocess.run("pip install -q gsplat && python -c \"import torch, gsplat; from gsplat import rasterization; "
+                   "m=torch.zeros(1,3,device='cuda'); q=torch.tensor([[1.,0,0,0]],device='cuda'); "
+                   "s=torch.full((1,3),.1,device='cuda'); o=torch.ones(1,device='cuda'); c=torch.ones(1,3,device='cuda'); "
+                   "V=torch.eye(4,device='cuda'); V[2,3]=3; K=torch.tensor([[50.,0,32],[0,50,32],[0,0,1]],device='cuda'); "
+                   "print('gsplat', gsplat.__version__, rasterization(m,q,s,o,c,V[None],K[None],64,64)[0].shape)\"",
+                   shell=True, timeout=3600)
+if r.returncode != 0:
+    raise RuntimeError("gsplat could not be installed/built in this session: the gsplat runs cannot happen")
+'''
+
+PHASE4_RUN = r'''
+RUNS = os.path.join(WORK, "runs")
+RES = os.path.join(WORK, f"phase4_{SESSION}_results")
+os.makedirs(RUNS, exist_ok=True)
+os.makedirs(RES, exist_ok=True)
+
+def job_cmd(j):
+    ds, scene = j["dataset"], j["scene"]
+    if ds == "blender":
+        data = f"--data {DATA}/nerf_synthetic/{scene} --format blender --downscale 1"
+    elif ds == "mipnerf360":
+        folder = "images_4" if scene in ("bicycle", "flowers", "garden", "stump", "treehill") else "images_2"
+        data = f"--data {DATA}/360_v2/{scene} --format colmap --images {folder} --max-gaussians {CAP}"
+    else:
+        data = f"--data {DATA}/tandt/{scene} --format colmap --images images --max-gaussians {CAP}"
+    script = "scripts/train.py --render-mode triton" if j["who"] == "mine" else "bench/train_gsplat.py"
+    name = j["name"]
+    return (f"python {script} {data} --iterations 30000 --ckpt-every 1000 --log-every 500 --time-limit-hours 10.5 "
+            f"--out {RUNS}/{name} --name {name} --results {RES}/{name}.md")
+
+# resume: bring back checkpoints from an earlier version's output, if attached as an input
+for jobs in JOBS.values():
+    for j in jobs:
+        prev = glob.glob(f"/kaggle/input/**/runs/{j['name']}/ckpt.pt", recursive=True)
+        dst = os.path.join(RUNS, j["name"])
+        if prev and not os.path.exists(os.path.join(dst, "ckpt.pt")):
+            shutil.copytree(os.path.dirname(prev[0]), dst, dirs_exist_ok=True)
+            print("resuming", j["name"], "from", prev[0])
+
+import torch
+n_gpu = torch.cuda.device_count()
+print("GPUs:", n_gpu, [torch.cuda.get_device_name(i) for i in range(n_gpu)])
+chains = {g: " ; ".join(f"({job_cmd(j)})" for j in jobs) for g, jobs in JOBS.items()}
+if n_gpu < 2:   # Colab: everything on one GPU, one job after the other
+    chains = {0: " ; ".join(chains.values())}
+procs = {}
+for gpu, cmd in chains.items():
+    log = open(os.path.join(RES, f"gpu{gpu}.log"), "w")
+    print(f"GPU {gpu}:", cmd.replace(" ; ", "\n   "), "\n")
+    procs[gpu] = subprocess.Popen(f"cd {REPO} && {cmd}", shell=True, stdout=log, stderr=subprocess.STDOUT,
+                                  env={**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)})
+t0 = time.time()
+while any(p.poll() is None for p in procs.values()):
+    time.sleep(300)
+    tails = {g: open(os.path.join(RES, f"gpu{g}.log")).read().strip().splitlines()[-1:] for g in procs}
+    print(f"[{(time.time() - t0) / 3600:.2f} h]", {g: t[0][:110] if t else "" for g, t in tails.items()}, flush=True)
+for g, p in procs.items():
+    print(f"GPU {g} exit code {p.returncode}")
+    print("".join(open(os.path.join(RES, f"gpu{g}.log")).readlines()[-15:]))
+'''
+
+PHASE4_PACKAGE = r'''
+for jobs in JOBS.values():
+    for j in jobs:
+        d = os.path.join(RUNS, j["name"])
+        for f in glob.glob(os.path.join(d, "log.csv")) + glob.glob(os.path.join(d, "test_000.png")):
+            shutil.copy(f, os.path.join(RES, f"{j['name']}_{os.path.basename(f)}"))
+sh(f"cd {REPO} && python bench/phase4_tables.py --runs {RES} --out {RES}/phase4_summary_{SESSION}.md")
+shutil.make_archive(RES, "zip", RES)
+print("download:", RES + ".zip   (final.pt files stay in runs/ in this version's output, for the viewer later)")
+'''
+
+
+def phase4_notebook(session, title, about, jobs, datasets, need_gsplat, est, extra=None):
+    blender = sorted({j["scene"] for js in jobs.values() for j in js if j["dataset"] == "blender"})
+    mip = sorted({j["scene"] for js in jobs.values() for j in js if j["dataset"] == "mipnerf360"})
+    tt = sorted({j["scene"] for js in jobs.values() for j in js if j["dataset"] == "tandt"})
+    get = []
+    if blender:
+        get.append(f'sh(f"cd {{REPO}} && python scripts/get_data.py blender --dest {{DATA}} --scenes {" ".join(blender)}")')
+    if mip:
+        get.append(f'sh(f"cd {{REPO}} && python scripts/get_data.py mipnerf360 --dest {{DATA}} --scenes {" ".join(mip)}")')
+    if tt:
+        get.append(f'sh(f"cd {{REPO}} && python scripts/get_data.py tandt --dest {{DATA}} --scenes {" ".join(tt)}")')
+    cells = [
+        md(f"""
+# Phase 4, session {session}: {title}
+
+{about}
+
+Run on **Kaggle** with **GPU T4 x2** and Internet on: **Save Version → Save & Run All (Commit)**, then stop the draft session. With one GPU (Colab) the jobs run one after the other.
+
+Every run: 30k iterations, paper hyperparameters, seed 0, the paper's evaluation protocol. Mip-NeRF 360 / T&T runs cap the Gaussian count at 3,000,000 to fit the T4's 15 GB (recorded in each results file). Checkpoints every 1000 iterations and a stop at 10.5 h: if the session ends early, attach this version's output as an input and run it again to resume.
+
+**GPU-hour estimate (from the Phase-3 timings; a guess until measured):** {est}
+
+At the end: download `phase4_{session}_results.zip` from the Output tab.
+"""),
+        code(SETUP),
+        code(f'SESSION = "{session}"\nCAP = 3_000_000\nJOBS = {json.dumps(jobs, indent=1)}\nJOBS = {{int(k): v for k, v in JOBS.items()}}'),
+        code(r'''
+# all unit tests + GPU tests (Triton kernels vs the reference); stops the notebook if anything fails
+sh(f"cd {REPO} && python -m pytest -p no:cacheprovider -rs tests")
+'''),
+        code("# datasets (into /tmp/data, not saved as output)\n" + "\n".join(get)),
+    ]
+    if need_gsplat:
+        cells.append(code(GSPLAT_INSTALL))
+    cells += [md("## Training jobs"), code(PHASE4_RUN)]
+    if extra:
+        cells += [md(extra[0]), code(extra[1])]
+    cells += [md("## Package results"), code(PHASE4_PACKAGE)]
+    return notebook(cells)
+
+
+def j(name, who, dataset, scene):
+    return {"name": name, "who": who, "dataset": dataset, "scene": scene}
+
+
+def phase4_all():
+    B = lambda s, w: j(f"{s}_{w}", w, "blender", s)
+    M = lambda s, w: j(f"{s}_{w}", w, "mipnerf360", s)
+    T = lambda s, w: j(f"{s}_{w}", w, "tandt", s)
+    diag = ("## Diagnostic: my rasterizer vs gsplat on a trained scene (alpha clamp 0.99 vs 0.999)", r'''
+sh(f"cd {REPO} && python bench/compare_gsplat.py --scene {RUNS}/lego_gsplat/final.pt --data {DATA}/nerf_synthetic/lego "
+   f"--views 20 --out {RES}/compare_gsplat_lego.md")
+''')
+    return {
+        "phase4_A_synthetic_mine": phase4_notebook(
+            "A", "NeRF-synthetic, my Triton rasterizer (8 scenes)",
+            "All 8 NeRF-synthetic scenes at 800x800 with my trainer + Triton rasterizer, 4 scenes per GPU. Includes the lego retrain after the density-control fix.",
+            {0: [B(s, "mine") for s in ("lego", "ship", "drums", "materials")],
+             1: [B(s, "mine") for s in ("chair", "ficus", "hotdog", "mic")]},
+            ["blender"], False, "~1-2 h per scene, 4 per GPU in parallel: about 5-8 h of session time."),
+        "phase4_B_synthetic_gsplat": phase4_notebook(
+            "B", "NeRF-synthetic with gsplat's rasterizer (reference) + diagnostic",
+            "The same 8 scenes, same training loop and settings, with gsplat's rasterizer (bench/train_gsplat.py), for the measured mine-vs-gsplat comparison. Then the alpha-clamp diagnostic on the trained lego.",
+            {0: [B(s, "gsplat") for s in ("lego", "ship", "drums", "materials")],
+             1: [B(s, "gsplat") for s in ("chair", "ficus", "hotdog", "mic")]},
+            ["blender"], True, "gsplat build ~0.2 h; ~0.3-0.6 h per scene, 4 per GPU: about 1.5-3 h.", diag),
+        "phase4_C_360_mine": phase4_notebook(
+            "C", "Mip-NeRF 360 garden + bicycle, my Triton rasterizer",
+            "garden on GPU 0, bicycle on GPU 1 (images_4, every 8th image held out, SfM init).",
+            {0: [M("garden", "mine")], 1: [M("bicycle", "mine")]},
+            ["mipnerf360"], False, "about 4-7 h (unknown until measured: these scenes reach millions of Gaussians)."),
+        "phase4_D_360_tandt_gsplat": phase4_notebook(
+            "D", "gsplat reference: garden, bicycle, kitchen, truck",
+            "The same training loop with gsplat's rasterizer on the real scenes.",
+            {0: [M("garden", "gsplat"), M("kitchen", "gsplat")], 1: [M("bicycle", "gsplat"), T("truck", "gsplat")]},
+            ["mipnerf360", "tandt"], True, "about 2-4 h."),
+        "phase4_E_kitchen_truck_mine": phase4_notebook(
+            "E", "Mip-NeRF 360 kitchen (indoor) + Tanks & Temples truck, my Triton rasterizer",
+            "kitchen (images_2) on GPU 0, truck on GPU 1.",
+            {0: [M("kitchen", "mine")], 1: [T("truck", "mine")]},
+            ["mipnerf360", "tandt"], False, "about 3-5 h."),
+    }
+
+
 if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT, "notebooks"), exist_ok=True)
-    for name, fn in (("phase2_lego", phase2), ("phase3_triton", phase3)):
+    books = {"phase2_lego": phase2(), "phase3_triton": phase3(), **phase4_all()}
+    for name, nb in books.items():
         path = os.path.join(ROOT, "notebooks", f"{name}.ipynb")
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(fn(), f, indent=1)
+            json.dump(nb, f, indent=1)
         print("wrote", path)

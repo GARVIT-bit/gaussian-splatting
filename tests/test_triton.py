@@ -116,3 +116,21 @@ def test_triton_trains_identically_to_autograd_float64():
     assert da == db and any(d for d in da)
     for k, v in ga.parameters().items():
         assert torch.allclose(v, gb.parameters()[k].cpu(), atol=1e-8), k
+
+
+def test_alpha_max_override_only_matters_for_nearly_opaque_gaussians():
+    """The gsplat diagnostic moves the alpha clamp to 0.999: no change when no Gaussian reaches 0.99,
+    a change when many do."""
+    c = camera(40, 30)
+    bg = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float64)
+    imgs = {}
+    for name, op in (("translucent", (0.2, 0.9)), ("opaque", (0.995, 0.9999))):
+        g = scene(60, 5, op)
+        ps = {k: v.to(DEVICE, torch.float64) for k, v in g.parameters().items()}
+        gg = Gaussians(**ps)
+        b = bg.to(DEVICE)
+        a = render_fast(gg, c, background=b, backend="triton").image
+        z = render_fast(gg, c, background=b, backend="triton", alpha_max=0.999).image
+        imgs[name] = (a - z).abs().max().item()
+    assert imgs["translucent"] < 1e-12
+    assert imgs["opaque"] > 1e-3

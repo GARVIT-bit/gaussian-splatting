@@ -1,0 +1,29 @@
+{
+  "_about": "Numbers REPORTED in Kerbl et al., 3D Gaussian Splatting (SIGGRAPH 2023), arXiv 2308.04079, method 'Ours-30K'. Different hardware (A6000) and their own code; never mixed with measured numbers. 'verified' says how each value was read.",
+  "_protocol_from_official_code": "full_eval.py: Mip-NeRF360 outdoor scenes trained/evaluated on images_4, indoor on images_2; metrics.py: LPIPS with net_type='vgg' (their own lpipsPyTorch port; this repo uses the `lpips` package, VGG). Every 8th image held out (paper, Sec. 7.2). Blender scenes on a white background (paper, Sec. 7.2).",
+  "nerf_synthetic": {
+    "_source": "Table 2 (PSNR only; the paper gives no per-scene SSIM/LPIPS for these scenes)",
+    "_verified": "verbatim from the arXiv HTML",
+    "psnr": {"chair": 35.83, "drums": 26.15, "ficus": 34.87, "hotdog": 37.72, "lego": 35.78,
+             "materials": 30.00, "mic": 35.36, "ship": 30.80, "average": 33.32}
+  },
+  "mipnerf360": {
+    "_source": "Appendix D per-scene tables (PSNR / SSIM / LPIPS)",
+    "_verified": "NOT verbatim: read from a summarising fetch of the arXiv HTML; the nine scenes average to Table 1's verbatim dataset averages (PSNR 27.21, SSIM 0.815, LPIPS 0.214). Check against the PDF appendix before shipping.",
+    "psnr":  {"bicycle": 25.246, "flowers": 21.520, "garden": 27.410, "stump": 26.550, "treehill": 22.490,
+              "room": 30.632, "counter": 28.700, "kitchen": 30.317, "bonsai": 31.980},
+    "ssim":  {"bicycle": 0.771, "flowers": 0.605, "garden": 0.868, "stump": 0.775, "treehill": 0.638,
+              "room": 0.914, "counter": 0.905, "kitchen": 0.922, "bonsai": 0.938},
+    "lpips": {"bicycle": 0.205, "flowers": 0.336, "garden": 0.103, "stump": 0.210, "treehill": 0.317,
+              "room": 0.220, "counter": 0.204, "kitchen": 0.129, "bonsai": 0.205},
+    "average_verbatim_table1": {"psnr": 27.21, "ssim": 0.815, "lpips": 0.214}
+  },
+  "tanks_temples": {
+    "_source": "Appendix D per-scene tables",
+    "_verified": "NOT verbatim (same caveat as mipnerf360); Table 1 averages verbatim: PSNR 23.14, SSIM 0.841, LPIPS 0.183",
+    "psnr": {"truck": 25.187, "train": 21.097},
+    "ssim": {"truck": 0.879, "train": 0.802},
+    "lpips": {"truck": 0.148, "train": 0.218},
+    "average_verbatim_table1": {"psnr": 23.14, "ssim": 0.841, "lpips": 0.183}
+  }
+}

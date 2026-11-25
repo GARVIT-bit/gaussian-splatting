@@ -271,9 +271,13 @@ class DensityControl:
 # --------------------------------------------------------------------- trainer
 
 class Trainer:
-    def __init__(self, scene: Scene, init: Gaussians, cfg: TrainConfig):
+    def __init__(self, scene: Scene, init: Gaussians, cfg: TrainConfig, render_fn=None):
+        """`render_fn(gaussians, camera, sh_degree=, background=)` replaces the renderer chosen by
+        cfg.render_mode. Only the benchmark scripts use it (to train with gsplat's rasterizer as a
+        reference); it must return .image and .projected.means2d / .projected.radii."""
         self.scene = scene
         self.cfg = cfg
+        self.render_fn = render_fn
         self.device = torch.device(cfg.device)
         self.background = scene.background.to(self.device)
         g = Gaussians(**{k: v.detach().to(self.device).clone() for k, v in init.parameters().items()})
@@ -291,6 +295,12 @@ class Trainer:
     def gaussians(self) -> Gaussians:
         return self.opt.g
 
+    def _render(self, cam):
+        if self.render_fn is not None:
+            return self.render_fn(self.gaussians, cam, sh_degree=self.sh_degree, background=self.background)
+        return render(self.gaussians, cam, sh_degree=self.sh_degree, background=self.background,
+                      mode=self.cfg.render_mode, batch_elems=self.cfg.batch_elems)
+
     def step(self) -> dict:
         cfg = self.cfg
         self.iteration += 1
@@ -304,8 +314,7 @@ class Trainer:
         frame = self.scene.train[self.stack.pop(self.rng.randint(0, len(self.stack) - 1))]
         gt = frame.image_float(self.device, self.gaussians.means.dtype)
 
-        out = render(self.gaussians, frame.camera, sh_degree=self.sh_degree, background=self.background,
-                     mode=cfg.render_mode, batch_elems=cfg.batch_elems)
+        out = self._render(frame.camera)
         out.projected.means2d.retain_grad()
         loss = gs_loss(out.image, gt, cfg.lambda_dssim)
         loss.backward()
@@ -376,8 +385,7 @@ class Trainer:
         frames = self.scene.test if frames is None else frames
         ps, ss, ls = [], [], []
         for fr in frames:
-            img = render(self.gaussians, fr.camera, sh_degree=self.sh_degree, background=self.background,
-                         mode=self.cfg.render_mode, batch_elems=self.cfg.batch_elems).image.clamp(0, 1)
+            img = self._render(fr.camera).image.clamp(0, 1)
             gt = fr.image_float(self.device, self.gaussians.means.dtype)
             ps.append(psnr(img, gt))
             ss.append(ssim(img, gt).item())

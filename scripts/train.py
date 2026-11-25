@@ -26,7 +26,6 @@ from PIL import Image
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 from splat.data import load_blender, load_colmap, random_init_points  # noqa: E402
-from splat.trainer import render  # noqa: E402  (dispatches on --render-mode)
 from splat.trainer import TrainConfig, Trainer, init_from_points  # noqa: E402,F811
 
 
@@ -53,6 +52,13 @@ def hardware() -> str:
     return f"CPU {platform.processor() or platform.machine()}, {torch.get_num_threads()} threads"
 
 
+def gpu_mem():
+    """(allocated, peak allocated) GPU memory in GB as strings, or empty strings on the CPU."""
+    if not torch.cuda.is_available():
+        return ["", ""]
+    return [f"{torch.cuda.memory_allocated() / 2**30:.2f}", f"{torch.cuda.max_memory_allocated() / 2**30:.2f}"]
+
+
 def make_lpips(device):
     try:
         import lpips  # metric only
@@ -70,7 +76,9 @@ def save_png(t: torch.Tensor, path: str):
     Image.fromarray((t.clamp(0, 1).cpu().numpy() * 255).round().astype(np.uint8)).save(path)
 
 
-def main():
+def main(argv=None, render_fn=None, renderer_label=None):
+    """`render_fn` / `renderer_label`: used only by bench/train_gsplat.py to train with gsplat's
+    rasterizer as a reference (this script never imports gsplat)."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--format", choices=["blender", "colmap"], required=True)
@@ -91,7 +99,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--n-renders", type=int, default=4)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     t_start = time.time()
     torch.manual_seed(args.seed)
@@ -113,7 +121,7 @@ def main():
                       sh_degree=sh_max, position_lr_max_steps=args.iterations,
                       densify_until=min(15_000, args.iterations // 2))
     init = init_from_points(pts, cols, sh_max, cfg.init_opacity, device=args.device)
-    trainer = Trainer(scene, init, cfg)
+    trainer = Trainer(scene, init, cfg, render_fn=render_fn)
     os.makedirs(args.out, exist_ok=True)
     ckpt = os.path.join(args.out, "ckpt.pt")
     if os.path.exists(ckpt):
@@ -127,7 +135,7 @@ def main():
     with open(log_path, "a", newline="") as lf:
         w = csv.writer(lf)
         if new_log:
-            w.writerow(["iter", "loss", "n_gaussians", "sh_degree", "sec_per_iter", "event"])
+            w.writerow(["iter", "loss", "n_gaussians", "sh_degree", "sec_per_iter", "event", "mem_alloc_gb", "mem_peak_gb"])
         window = []
         while trainer.iteration < cfg.iterations:
             info = trainer.step()
@@ -140,7 +148,7 @@ def main():
                 event += " opacity_reset"
             if info["iter"] % args.log_every == 0 or event:
                 w.writerow([info["iter"], f"{info['loss']:.5f}", info["n"], info["sh"],
-                            f"{np.mean(window):.4f}", event.strip()])
+                            f"{np.mean(window):.4f}", event.strip(), *gpu_mem()])
                 lf.flush()
             if info["iter"] % args.log_every == 0:
                 print(f"iter {info['iter']:6d} loss {info['loss']:.4f} n {info['n']:7d} sh {info['sh']} "
@@ -161,9 +169,7 @@ def main():
     res = trainer.evaluate(lpips_fn=lpips_fn)
     eval_time = time.time() - t_eval
     with torch.no_grad():
-        draw = lambda fr: render(trainer.gaussians, fr.camera, sh_degree=trainer.sh_degree,
-                                 background=trainer.background, mode=cfg.render_mode,
-                                 batch_elems=cfg.batch_elems).image
+        draw = lambda fr: trainer._render(fr.camera).image
         draw(scene.test[0])  # warm-up (kernel compilation)
         sync = torch.cuda.synchronize if args.device.startswith("cuda") else (lambda: None)
         sync()
@@ -180,7 +186,8 @@ def main():
 
     hours = trainer.train_time / 3600
     lines = [
-        f"# {args.name}: training with render mode `{cfg.render_mode}` ({RENDERERS.get(cfg.render_mode, '?')})",
+        f"# {args.name}: training with "
+        + (renderer_label or f"render mode `{cfg.render_mode}` ({RENDERERS.get(cfg.render_mode, '?')})"),
         "",
         f"- Date: {datetime.date.today().isoformat()}  |  git commit: {git_commit()}",
         f"- Hardware: {hardware()}  |  Python {platform.python_version()}  |  PyTorch {torch.__version__}",
@@ -219,6 +226,20 @@ def main():
     os.makedirs(os.path.dirname(out_md), exist_ok=True)
     with open(out_md, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
+    summary = {
+        "name": args.name, "date": datetime.date.today().isoformat(), "commit": git_commit(),
+        "hardware": hardware(), "torch": torch.__version__,
+        "renderer": renderer_label or cfg.render_mode, "data": os.path.basename(os.path.normpath(args.data)),
+        "format": args.format, "images": args.images if args.format == "colmap" else f"downscale {args.downscale:g}",
+        "width": c0.width, "height": c0.height, "n_train": len(scene.train), "n_test": len(scene.test),
+        "iterations": trainer.iteration, "seed": args.seed, "gaussians": trainer.gaussians.num,
+        "train_hours": hours, "sec_per_iter": trainer.train_time / max(trainer.iteration, 1),
+        "peak_mem_gb": None if peak_mem != peak_mem else peak_mem, "render_ms": render_s * 1000,
+        "psnr": res["psnr"], "ssim": res["ssim"], "lpips": res.get("lpips"), "lpips_note": lpips_note,
+        "psnr_per_view": res["psnr_per_view"], "config": dataclasses.asdict(cfg),
+    }
+    with open(os.path.splitext(out_md)[0] + ".json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=1)
     print("\n".join(lines[:20]))
 
 

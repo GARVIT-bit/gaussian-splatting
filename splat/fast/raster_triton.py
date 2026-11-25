@@ -157,7 +157,8 @@ def _c(t: torch.Tensor, dtype) -> torch.Tensor:
 
 class RasterizeTritonFn(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, means2d, conics, opac, colors, bins: Bins, width: int, height: int, background):
+    def forward(ctx, means2d, conics, opac, colors, bins: Bins, width: int, height: int, background,
+                alpha_max: float = ALPHA_MAX):
         dtype, device = means2d.dtype, means2d.device
         m2, cn, op, col = _c(means2d, dtype), _c(conics, dtype), _c(opac, dtype), _c(colors, dtype)
         bg = _c(background, dtype)
@@ -167,20 +168,20 @@ class RasterizeTritonFn(torch.autograd.Function):
         tf = torch.empty(height * width, dtype=dtype, device=device)
         last = torch.empty(height * width, dtype=torch.int32, device=device)
         _fwd_kernel[(bins.num_tiles,)](m2, cn, op, col, gid, rng, bg, img, tf, last, width, height, bins.tiles_x,
-                                       TILE=bins.tile, ALPHA_MAX=ALPHA_MAX, ALPHA_MIN=ALPHA_MIN, T_MIN=T_MIN)
+                                       TILE=bins.tile, ALPHA_MAX=alpha_max, ALPHA_MIN=ALPHA_MIN, T_MIN=T_MIN)
         ctx.save_for_backward(m2, cn, op, col, gid, rng, bg, tf, last)
-        ctx.meta = (bins.num_tiles, bins.tiles_x, bins.tile, width, height)
+        ctx.meta = (bins.num_tiles, bins.tiles_x, bins.tile, width, height, alpha_max)
         return img.view(height, width, 3), (1 - tf).view(height, width)
 
     @staticmethod
     def backward(ctx, g_img, g_acc):
         m2, cn, op, col, gid, rng, bg, tf, last = ctx.saved_tensors
-        num_tiles, tiles_x, tile, width, height = ctx.meta
+        num_tiles, tiles_x, tile, width, height, alpha_max = ctx.meta
         dtype = m2.dtype
         g_img = torch.zeros(height, width, 3, dtype=dtype, device=m2.device) if g_img is None else g_img
         g_acc = torch.zeros(height, width, dtype=dtype, device=m2.device) if g_acc is None else g_acc
         gm2, gcn, gop, gcol = (torch.zeros_like(t) for t in (m2, cn, op, col))
         _bwd_kernel[(num_tiles,)](m2, cn, op, col, gid, rng, bg, tf, last, _c(g_img, dtype), _c(g_acc, dtype),
                                   gm2, gcn, gop, gcol, width, height, tiles_x,
-                                  TILE=tile, ALPHA_MAX=ALPHA_MAX, ALPHA_MIN=ALPHA_MIN)
-        return gm2, gcn, gop, gcol, None, None, None, None
+                                  TILE=tile, ALPHA_MAX=alpha_max, ALPHA_MIN=ALPHA_MIN)
+        return gm2, gcn, gop, gcol, None, None, None, None, None
