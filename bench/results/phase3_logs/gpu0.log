@@ -1,0 +1,104 @@
+100 train / 200 test views at 800x800, extent 5.202, 100000 init points
+iter    500 loss 0.1281 n  100000 sh 0 0.134 s/it  opacity_reset
+iter   1000 loss 0.0447 n   17682 sh 1 0.104 s/it densify +2729c +816s -292p -> 20935
+iter   1500 loss 0.0352 n   41052 sh 1 0.097 s/it densify +5580c +404s -100p -> 46936
+iter   2000 loss 0.0238 n   71976 sh 2 0.107 s/it densify +6334c +242s -85p -> 78467
+iter   2500 loss 0.0220 n  103784 sh 2 0.122 s/it densify +6129c +166s -70p -> 110009
+iter   3000 loss 0.0154 n  134279 sh 3 0.136 s/it densify +5475c +127s -55p -> 139826 opacity_reset
+iter   3500 loss 0.0174 n   82965 sh 3 0.110 s/it densify +7401c +542s -4883p -> 86025
+iter   4000 loss 0.0156 n   98102 sh 3 0.102 s/it densify +6557c +544s -4242p -> 100961
+iter   4500 loss 0.0160 n  111408 sh 3 0.109 s/it densify +5957c +539s -4352p -> 113552
+iter   5000 loss 0.0179 n  120846 sh 3 0.113 s/it densify +5116c +515s -4313p -> 122164
+iter   5500 loss 0.0162 n  127537 sh 3 0.117 s/it densify +4741c +639s -4093p -> 128824
+iter   6000 loss 0.0128 n  133033 sh 3 0.120 s/it densify +4493c +586s -4075p -> 134037 opacity_reset
+iter   6500 loss 0.0146 n  121433 sh 3 0.119 s/it densify +4211c +665s -4544p -> 121765
+iter   7000 loss 0.0164 n  123638 sh 3 0.118 s/it densify +3866c +699s -4117p -> 124086
+iter   7500 loss 0.0123 n  125194 sh 3 0.118 s/it densify +3769c +624s -4155p -> 125432
+iter   8000 loss 0.0144 n  125970 sh 3 0.119 s/it densify +3402c +715s -4200p -> 125887
+iter   8500 loss 0.0120 n  125987 sh 3 0.119 s/it densify +3412c +715s -4012p -> 126102
+iter   9000 loss 0.0140 n  126129 sh 3 0.120 s/it densify +3161c +739s -3926p -> 126103 opacity_reset
+iter   9500 loss 0.0133 n  115135 sh 3 0.118 s/it densify +3331c +883s -4296p -> 115053
+iter  10000 loss 0.0139 n  114907 sh 3 0.116 s/it densify +3118c +827s -4049p -> 114803
+iter  10500 loss 0.0130 n  114425 sh 3 0.116 s/it densify +3106c +807s -4176p -> 114162
+iter  11000 loss 0.0137 n  113446 sh 3 0.115 s/it densify +3041c +825s -3968p -> 113344
+iter  11500 loss 0.0130 n  112818 sh 3 0.115 s/it densify +2967c +870s -4073p -> 112582
+iter  12000 loss 0.0162 n  111757 sh 3 0.115 s/it densify +2921c +895s -3960p -> 111613 opacity_reset
+iter  12500 loss 0.0122 n  102518 sh 3 0.114 s/it densify +3052c +979s -4207p -> 102342
+iter  13000 loss 0.0130 n  101582 sh 3 0.111 s/it densify +2908c +928s -4040p -> 101378
+iter  13500 loss 0.0116 n  100711 sh 3 0.110 s/it densify +2834c +970s -3971p -> 100544
+iter  14000 loss 0.0157 n   99743 sh 3 0.110 s/it densify +2858c +949s -3960p -> 99590
+iter  14500 loss 0.0126 n   98720 sh 3 0.109 s/it densify +2737c +896s -3975p -> 98378
+iter  15000 loss 0.0130 n   97405 sh 3 0.109 s/it 
+iter  15500 loss 0.0112 n   97405 sh 3 0.108 s/it 
+iter  16000 loss 0.0127 n   97405 sh 3 0.108 s/it 
+iter  16500 loss 0.0096 n   97405 sh 3 0.108 s/it 
+iter  17000 loss 0.0089 n   97405 sh 3 0.108 s/it 
+iter  17500 loss 0.0105 n   97405 sh 3 0.108 s/it 
+iter  18000 loss 0.0115 n   97405 sh 3 0.108 s/it 
+iter  18500 loss 0.0103 n   97405 sh 3 0.108 s/it 
+iter  19000 loss 0.0101 n   97405 sh 3 0.109 s/it 
+iter  19500 loss 0.0100 n   97405 sh 3 0.108 s/it 
+iter  20000 loss 0.0095 n   97405 sh 3 0.109 s/it 
+iter  20500 loss 0.0117 n   97405 sh 3 0.108 s/it 
+iter  21000 loss 0.0079 n   97405 sh 3 0.109 s/it 
+iter  21500 loss 0.0082 n   97405 sh 3 0.109 s/it 
+iter  22000 loss 0.0105 n   97405 sh 3 0.109 s/it 
+iter  22500 loss 0.0078 n   97405 sh 3 0.109 s/it 
+iter  23000 loss 0.0088 n   97405 sh 3 0.109 s/it 
+iter  23500 loss 0.0084 n   97405 sh 3 0.109 s/it 
+iter  24000 loss 0.0076 n   97405 sh 3 0.109 s/it 
+iter  24500 loss 0.0119 n   97405 sh 3 0.109 s/it 
+iter  25000 loss 0.0095 n   97405 sh 3 0.109 s/it 
+iter  25500 loss 0.0076 n   97405 sh 3 0.109 s/it 
+iter  26000 loss 0.0081 n   97405 sh 3 0.109 s/it 
+iter  26500 loss 0.0113 n   97405 sh 3 0.109 s/it 
+iter  27000 loss 0.0108 n   97405 sh 3 0.109 s/it 
+iter  27500 loss 0.0098 n   97405 sh 3 0.109 s/it 
+iter  28000 loss 0.0079 n   97405 sh 3 0.109 s/it 
+iter  28500 loss 0.0089 n   97405 sh 3 0.109 s/it 
+iter  29000 loss 0.0087 n   97405 sh 3 0.109 s/it 
+iter  29500 loss 0.0080 n   97405 sh 3 0.109 s/it 
+iter  30000 loss 0.0112 n   97405 sh 3 0.109 s/it 
+/usr/local/lib/python3.13/dist-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/usr/local/lib/python3.13/dist-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=VGG16_Weights.IMAGENET1K_V1`. You can also use `weights=VGG16_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+# lego_triton_800: training with render mode `triton` (my Triton tile rasterizer, hand-written backward)
+
+- Date: 2026-11-24  |  git commit: 85184dc
+- Hardware: Tesla T4 (15 GB), CUDA 13.0  |  Python 3.13.16  |  PyTorch 2.11.0+cu130
+- Data: `lego` (blender), 100 train / 200 test views at 800x800 (downscale 1), background [1.0, 1.0, 1.0]
+- Init: 100000 random points in [-1.3, 1.3]^3, seed 0, 1 run
+- Iterations: 30000  |  Gaussian cap: none  |  final Gaussians: 97405  |  SH degree: 3
+- Training time (sum of iteration times, excl. loading/eval): 0.93 h (0.112 s/iteration)
+- Peak GPU memory allocated: 4.76 GB
+- Render time per test view (mean over all 200 test views, renders only, no grad): 10.6 ms (94.2 views/s)
+
+| metric | value |
+|---|---:|
+| test PSNR (dB) | 32.46 |
+| test SSIM | 0.9680 |
+| test LPIPS | 0.0434 |
+| test views | 200 |
+
+PSNR per view: min 24.43, max 36.06, std 2.60. Evaluation took 80 s. LPIPS (VGG), lpips package
+
+{'res': '200x200', 'scene': 'trained', 'n': 97405, 'triton_fwd': 12.536546999854181, 'triton_fb': 82.79259500022818, 'triton_fb_spread': (82.06853499996214, 84.47539899952972), 'triton_mem': 891.841796875, 'pairs': 208450, 'ref_fb': 361.48514700016676, 'diff_ref': 5.058944225311279e-05, 'gs_fwd': 2.898853499573306, 'gs_fb': 7.6210110000829445, 'gs_fb_spread': (7.188163000137138, 8.557965000363765), 'diff_gs': 0.08636012673377991}
+{'res': '400x400', 'scene': 'trained', 'n': 97405, 'triton_fwd': 16.04520499950013, 'triton_fb': 50.00168249989656, 'triton_fb_spread': (49.25037399971188, 50.688121000348474), 'triton_mem': 893.791015625, 'pairs': 283625, 'ref_fb': 481.3554099996509, 'diff_ref': 0.0013682842254638672, 'gs_fwd': 2.3322934998759592, 'gs_fb': 5.866687000434467, 'gs_fb_spread': (5.598411999926611, 6.43992699951923), 'diff_gs': 0.08496145904064178}
+{'res': '800x800', 'scene': 'trained', 'n': 97405, 'triton_fwd': 16.387281499646633, 'triton_fb': 42.44499500009624, 'triton_fb_spread': (41.54439800004184, 44.10910199931095), 'triton_mem': 909.68359375, 'pairs': 536194, 'ref_fb': 850.4848930001572, 'diff_ref': 1.1920928955078125e-06, 'gs_fwd': 2.844817500317731, 'gs_fb': 8.291909999570635, 'gs_fb_spread': (7.983681000041543, 8.826314000543789), 'diff_gs': 0.09224150329828262}
+# Phase 3: rasterizer benchmark (one render: forward, and forward + backward)
+
+- Date: 2026-11-24  |  git commit: 85184dc
+- GPU: Tesla T4  |  PyTorch 2.11.0+cu130  |  CUDA 13.0  |  Triton 3.6.0  |  Python 3.13.16
+- Reference comparison: gsplat 1.5.3 (rasterize_mode classic, eps2d 0.3, near plane 0.2, tile 16)
+- Scene: trained scene /kaggle/working/runs/lego_triton_800/final.pt, SH degree 3, white background
+- Camera: first test camera of lego
+- Timing: median of 20 (reference: 4) after warm-up, wall clock with cuda.synchronize, includes preprocess + binning + sort. Loss for backward: image.sum().
+
+| resolution | scene | Gaussians | tile pairs | mine (Triton) fwd ms | mine fwd+bwd ms | reference fwd+bwd ms | gsplat fwd ms | gsplat fwd+bwd ms | speed-up vs reference | mine / gsplat (fwd+bwd) | peak MB (mine) | max abs diff mine vs ref | max abs diff mine vs gsplat |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 200x200 | trained | 97405 | 208450 | 12.5 | 82.8 (82.1-84.5) | 361.5 | 2.9 | 7.6 (7.2-8.6) | 4.4x | 10.86x | 892 | 5.1e-05 | 8.6e-02 |
+| 400x400 | trained | 97405 | 283625 | 16.0 | 50.0 (49.3-50.7) | 481.4 | 2.3 | 5.9 (5.6-6.4) | 9.6x | 8.52x | 894 | 1.4e-03 | 8.5e-02 |
+| 800x800 | trained | 97405 | 536194 | 16.4 | 42.4 (41.5-44.1) | 850.5 | 2.8 | 8.3 (8.0-8.8) | 20.0x | 5.12x | 910 | 1.2e-06 | 9.2e-02 |
+
+"mine / gsplat" above 1 means mine is slower. Reference rows are skipped where one render takes over 4 s. Forward+backward cells show median (min-max) over the reps.

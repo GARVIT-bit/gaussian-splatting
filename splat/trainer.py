@@ -7,7 +7,9 @@ Defaults follow the paper / official code (30k iterations):
   densify every 100 its from 500 to 15k: view-space gradient threshold 2e-4,
   clone if max scale <= 1% of extent else split in 2 (scale / 1.6), prune
   opacity < 0.005; after the first opacity reset also prune Gaussians with a
-  screen radius > 20 px or world scale > 10% of extent; opacity reset every 3000.
+  world scale > 10% of extent; opacity reset every 3000. The paper also prunes
+  screen radius > 20 px, but in the official code that check sees radii that
+  were just reset to 0 and never fires; we match the code (prune_by_screen_size).
 """
 from __future__ import annotations
 
@@ -64,6 +66,7 @@ class TrainConfig:
     opacity_reset_every: int = 3000
     min_opacity: float = 0.005
     max_screen_size: float = 20.0
+    prune_by_screen_size: bool = False  # see DensityControl.densify_and_prune: matches the official code
     max_gaussians: int = 0          # 0 = no cap
     init_opacity: float = 0.1
     seed: int = 0
@@ -246,10 +249,13 @@ class DensityControl:
         prune = parents | (g.opacities.detach() < cfg.min_opacity)
         n_low = int((g.opacities.detach() < cfg.min_opacity).sum())
         if max_screen_size:
-            max_radii = torch.cat([self.max_radii, torch.zeros(n_clone + 2 * n_split, device=dev)])
-            big_screen = max_radii > max_screen_size
             big_world = torch.exp(g.log_scales.detach()).max(-1).values > 0.1 * extent
-            prune |= big_screen | big_world
+            prune |= big_world
+            if cfg.prune_by_screen_size:
+                # The paper's rule. Off by default: in the official code max_radii2D is zeroed by
+                # densification_postfix() before this check, so it never prunes anything there.
+                max_radii = torch.cat([self.max_radii, torch.zeros(n_clone + 2 * n_split, device=dev)])
+                prune |= max_radii > max_screen_size
         opt.keep(~prune)
         self.reset(g.num, dev)
         return {"before": n0, "cloned": n_clone, "split": n_split, "pruned": int(prune.sum()) - n_split,

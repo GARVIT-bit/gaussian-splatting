@@ -2,13 +2,13 @@
 
 Rebuild a 3D scene from photos or a phone video and render it in the browser: my own differentiable Gaussian rasterizer (a pure-PyTorch reference, then a tile-based GPU version with a hand-written backward pass), the training loop with adaptive density control, evaluation on standard datasets, a WebGL viewer, and measured compression. Based on Kerbl, Kopanas, Leimkühler, Drettakis, *3D Gaussian Splatting for Real-Time Radiance Field Rendering*, SIGGRAPH 2023.
 
-**Status:** Phases 1-2 done (maths, reference renderer, full training pipeline; lego trained on a Kaggle T4 with the reference renderer at 200×200). Phase 3 (Triton rasterizer with hand-written backward) is written and tested on the CPU, including the Triton kernels through Triton's interpreter; its GPU run has not happened yet, so there are no Phase-3 speed numbers. Phases 4-6 not started.
+**Status:** Phases 1-2 done (maths, reference renderer, full training pipeline; lego trained on a Kaggle T4 with the reference renderer at 200×200). Phase 3 done: my Triton rasterizer with a hand-written backward passes every GPU test on a T4, reproduces the reference training run (35.43 vs 35.42 dB) 5.1× faster, and trains lego at full 800×800 in 0.93 h. It is 4-11× slower than gsplat. Phases 4-6 not started.
 
 | Phase | What | Status |
 |---|---|---|
 | 1 | Maths + pure-PyTorch reference renderer (laptop CPU) | done |
 | 2 | Training pipeline (density control, loaders, checkpoints) | done |
-| 3 | Fast tile-based rasterizer with hand-written backward | code + CPU/interpreter tests done; GPU run pending |
+| 3 | Fast tile-based rasterizer with hand-written backward | done |
 | 4 | Real scenes + evaluation vs paper and gsplat | not started |
 | 5 | WebGL viewer | not started |
 | 6 | Compression (measured) + ship | not started |
@@ -189,7 +189,40 @@ The fast path computes the same image as the tiled reference, in three stages, e
 
 ### Phase 3: Triton rasterizer (GPU)
 
-_Not run yet._ `notebooks/phase3_triton.ipynb` writes `lego_triton_800.md` (lego at full 800×800, the Phase-3 "done" run), `lego_triton_200.md` (exactly the Phase-2 settings on the Triton rasterizer, for a like-for-like speed and quality comparison with the reference run below), and two benchmark tables (random scenes at 200/400/800 px × 10k–300k Gaussians, and the trained lego scene), with gsplat on the same T4 as a reference. Numbers go here once it has run.
+All from `notebooks/phase3_triton.ipynb` on one Kaggle session (2 × Tesla T4, PyTorch 2.11 + CUDA 13.0, Triton 3.6, commit 85184dc, 2026-11-24). All GPU tests passed first: the compiled Triton kernels match the reference in float64 and float32, and the float64 training run is identical to autograd. The whole session took 1 h 10 min.
+
+**Same training, two rasterizers.** Lego at 200×200 with exactly the Phase-2 settings (100k random init, 30k iterations, cap 200k, seed 0, one run each):
+
+| | reference (autograd, Phase 2) | mine (Triton, hand-written backward) |
+|---|---:|---:|
+| test PSNR (dB) | 35.42 | 35.43 |
+| test SSIM | 0.9898 | 0.9898 |
+| test LPIPS (VGG) | 0.0107 | 0.0107 |
+| final Gaussians | 109,695 | 109,205 |
+| training time | 3.86 h (0.463 s/it) | **0.76 h (0.091 s/it), 5.1× faster** |
+| render per test view | 134 ms | 13.3 ms |
+
+The quality is the same to within run-to-run noise. The ~0.4 % difference in Gaussian count comes from float32 rounding differences changing a few densification decisions over 30k iterations. ([reference](bench/results/lego_ref_200.md), [Triton](bench/results/lego_triton_200.md))
+
+**Lego at full resolution (800×800), my Triton rasterizer:** test PSNR **32.46 dB**, SSIM 0.9680, LPIPS 0.0434, 97,405 Gaussians, 0.93 h of training (0.112 s/it), 4.76 GB peak memory, 10.6 ms per test view (94 views/s, as rendered by the training code, not the viewer). **This number is below what lego should reach, and I know why:** my density control pruned far more than the official code does (bug 7 below). The pruning is fixed, but lego at 800×800 has not been retrained yet; that happens with the other NeRF-synthetic scenes in Phase 4, which is where the paper comparison lives. ([results](bench/results/lego_triton_800.md))
+
+![lego 800x800, mine (left) vs ground truth (right)](docs/images/phase3_lego800_triton_test_000.jpg)
+
+**Rasterizer benchmark** (one render, median of 20; includes preprocess, binning and sort; full tables: [random scenes](bench/results/phase3_rasterizer_random.md), [trained lego scene](bench/results/phase3_rasterizer_lego.md)):
+
+| scene, resolution | Gaussians | mine fwd+bwd (ms) | reference fwd+bwd (ms) | gsplat 1.5.3 fwd+bwd (ms) | mine vs reference | mine vs gsplat |
+|---|---:|---:|---:|---:|---:|---:|
+| random, 200×200 | 100k | 39.5 | 406 | 4.4 | 10× faster | 9.0× slower |
+| random, 800×800 | 100k | 37.5 | 1,213 | 8.2 | 32× faster | 4.6× slower |
+| random, 800×800 | 300k | 87.2 | 3,572 | 13.9 | 41× faster | 6.3× slower |
+| trained lego, 800×800 | 97k | 42.4 | 851 | 8.3 | 20× faster | 5.1× slower |
+
+What this shows:
+- My kernels are 4.5–41× faster than the PyTorch reference, and the gap grows with resolution.
+- They are **4–11× slower than gsplat** on the same T4.
+- Forward-only, mine takes 6–28 ms where gsplat takes 1.2–5.5 ms. My fixed cost per render is high even at 10k Gaussians (~6 ms forward), which points at per-call overhead: the PyTorch preprocess and binning, and a reduction every loop step in the forward kernel. That is where tuning would start.
+
+Image agreement with the reference is within 2.3·10⁻³ (max abs, float32). With gsplat it is within 6.3·10⁻³ on random scenes, but up to 9.2·10⁻² (max over all pixels) on the trained lego scene. I have not explained that yet (see Honest limits).
 
 ### Phase 2: lego with the reference renderer (GPU)
 
@@ -247,12 +280,15 @@ Init | fitted | ground truth on a held-out view (48×48, upscaled 4×):
 4. **Float64 training diverged between the two backward passes (Phase 3).** *Symptom:* a 30-iteration float64 training run with the hand-written backward and the same run with autograd made identical densification decisions, but at iteration 21 one Gaussian's colour gradient differed by 1 % (far more than float64 rounding), and the runs drifted apart after that. *Cause:* two Gaussians had different float64 depths (2.78196807 vs 2.78196823) that round to the same float32. The fast path sorts by the float32 bit pattern (like the CUDA rasterizer) and breaks the tie by index; the reference sorted by the float64 depth. So the pair composited in opposite orders in the two paths. *Fix:* depth order is now defined once, as float32 depth with ties broken by index, and the reference uses that definition too. Float32 training was never affected (both paths already saw float32 depths), so the Phase 1 and 2 results stand. *Guard:* the float64 "trains identically" tests for both the PyTorch spec and the Triton kernels.
 5. **The trainer loaded target images as float32 regardless of the model's dtype (Phase 3).** *Symptom:* the first float64 training test crashed in SSIM's convolution with a dtype mismatch. *Cause:* `Frame.image_float()` defaulted to float32, which was fine until something trained in float64. *Fix:* the trainer asks for the Gaussians' dtype. *Guard:* the float64 training tests.
 6. **`train.py --render-mode triton` would have crashed after training (Phase 3, found by a smoke run in WSL).** *Symptom:* none yet on a GPU. A CPU smoke run of the script showed it. *Cause:* `train.py` imported the reference `render()` for the final test renders, and that function doesn't know the `triton` mode, so a GPU run would have failed after hours of training, at the evaluation step. The same block also timed PNG writing as if it were rendering. *Fix:* `train.py` uses the trainer's renderer dispatch, and the render time is now measured over all test views with nothing else in the loop. *Guard:* the smoke run (train 6 iterations, resume to 12, evaluate) is now part of checking a script change before a GPU run.
-7. **Design mistake caught before running (no test found it):** I first gave the higher-order SH coefficients a smaller learning rate by scaling their gradients with a hook. Adam divides by the running RMS of the gradient, so a constant gradient scale cancels out and changes nothing. *Fix:* the SH DC and higher-order coefficients are separate tensors (`sh_dc`, `sh_rest`) in separate Adam parameter groups, as in the original implementation.
+7. **Full-resolution lego lost Gaussians: the paper's screen-size prune, implemented as written, behaves differently from the official code (Phase 3, found by the 800×800 run).** *Symptom:* lego at 800×800 ended with fewer Gaussians (97k) than at 200×200 (109k), and a test PSNR of 32.46 dB. The log showed the count peaking at ~140k around iteration 3,000, then ~4,000 Gaussians pruned at every densification step. *Cause:* the paper prunes Gaussians whose screen radius exceeded 20 px. Screen radii scale with resolution, so at 800×800 that rule removes many legitimate Gaussians. Reading the official code (`scene/gaussian_model.py`): `densify_and_clone` and `densify_and_split` both call `densification_postfix`, which resets `max_radii2D` to zeros *before* `densify_and_prune` tests `max_radii2D > max_screen_size`. So in the code that produced the paper's numbers, the screen-size prune never removes anything. *Fix:* match the official behaviour by default (`prune_by_screen_size=False`; the world-size prune at 10 % of the extent still applies), and keep the paper's rule as an option for an ablation. *Guard:* `test_default_matches_official_code_screen_size_prune_never_fires`. The Phase-2 run at 200×200 also used the paper's rule, but there it pruned only ~30-50 Gaussians per step; its numbers are left as measured with that code.
+8. **Design mistake caught before running (no test found it):** I first gave the higher-order SH coefficients a smaller learning rate by scaling their gradients with a hook. Adam divides by the running RMS of the gradient, so a constant gradient scale cancels out and changes nothing. *Fix:* the SH DC and higher-order coefficients are separate tensors (`sh_dc`, `sh_rest`) in separate Adam parameter groups, as in the original implementation.
 
 ## Honest limits
 
 - The reference renderer is dense (every pixel × every Gaussian), so it only runs at tiny resolutions and Gaussian counts. It is the correctness baseline, not the fast path.
-- The Triton kernels have only been run in Triton's CPU interpreter so far. Compiled GPU behaviour (and speed) comes from the Phase-3 notebook. The preprocess and binning stages are vectorised PyTorch (with a hand-written backward), not custom kernels.
+- My Triton rasterizer is 4-11× slower than gsplat on a T4 (forward+backward). The preprocess and binning stages are vectorised PyTorch (with a hand-written backward), not custom kernels, and the forward kernel does a block reduction at every step of its loop to detect "all pixels done". Both are the obvious places to optimise; neither has been tuned.
+- On the trained lego scene my image and gsplat's differ by up to 0.09 at some pixel (max over 640k pixels), while on random scenes the difference stays below 0.007. One known difference: gsplat 1.5.3 clamps alpha at 0.999 (`RasterizeToPixels3DGSFwd.cu`), where mine and the original 3DGS clamp at 0.99, and it stops at T ≤ 10⁻⁴ instead of T < 10⁻⁴. The random scenes have opacities ≤ 0.9, so the clamp never applies there. A trained scene has many nearly opaque Gaussians, where it does. That fits the pattern, but it is a hypothesis: I haven't measured it yet (planned with the Phase-4 gsplat comparison).
+- The 800×800 lego result in Phase 3 was trained with the over-pruning density control (bug 7) and is not representative; lego is retrained in Phase 4.
 - My backward pass is the exact derivative of my forward pass, including a zero gradient where α is clamped at 0.99.
 - Phase 2 trains with the PyTorch reference renderer, which is far too slow for full resolution. The Phase-2 lego run is at 200×200 with a cap of 200k Gaussians, and is a pipeline check, not a paper comparison. Paper-comparable runs need the Phase-3 rasterizer.
 - Not implemented from the official code: random background colours during training, exposure compensation, anti-aliasing, and the later densification variants. Images are resized with PIL bicubic.

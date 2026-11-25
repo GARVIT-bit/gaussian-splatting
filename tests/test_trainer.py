@@ -119,20 +119,36 @@ def test_clone_split_prune():
 
 
 def test_screen_and_world_size_pruning_only_with_max_screen_size():
+    # the paper's rule, enabled explicitly (prune_by_screen_size=True)
     g = four_gaussians()
     g.log_scales[3] = math.log(0.5)  # > 10% of extent 1.0, low gradient
-    opt, cfg = make_opt(g)
+    opt, cfg = make_opt(g, prune_by_screen_size=True)
     dc = DensityControl(4, "cpu")
     dc.max_radii = torch.tensor([30.0, 0.0, 0.0, 0.0])  # Gaussian 0 got huge on screen
     info = dc.densify_and_prune(opt, cfg, 1.0, None, torch.Generator())
     assert info["after"] == 3  # only the low-opacity one
     g = four_gaussians()
     g.log_scales[3] = math.log(0.5)
-    opt, cfg = make_opt(g)
+    opt, cfg = make_opt(g, prune_by_screen_size=True)
     dc = DensityControl(4, "cpu")
     dc.max_radii = torch.tensor([30.0, 0.0, 0.0, 0.0])
     info = dc.densify_and_prune(opt, cfg, 1.0, 20.0, torch.Generator())
     assert info["after"] == 1 and torch.equal(opt.g.means[0], torch.tensor([1.0, 0, 0]))
+
+
+def test_default_matches_official_code_screen_size_prune_never_fires():
+    """Guard for the bug found by the 800x800 lego run: by default (like the official code, where
+    max_radii2D is zeroed before the check) a Gaussian that was huge on screen is kept; the
+    world-size rule still prunes."""
+    g = four_gaussians()
+    g.log_scales[3] = math.log(0.5)  # > 10% of extent: pruned by the world-size rule
+    opt, cfg = make_opt(g)
+    assert cfg.prune_by_screen_size is False
+    dc = DensityControl(4, "cpu")
+    dc.max_radii = torch.tensor([30.0, 0.0, 0.0, 0.0])  # Gaussian 0: 30 px > 20 px on screen
+    info = dc.densify_and_prune(opt, cfg, 1.0, 20.0, torch.Generator())
+    assert info["after"] == 2  # low-opacity (2) and world-size (3) pruned; 0 and 1 kept
+    assert torch.equal(opt.g.means[0], torch.tensor([0.0, 0, 0]))
 
 
 def test_gaussian_cap_keeps_highest_gradients():
